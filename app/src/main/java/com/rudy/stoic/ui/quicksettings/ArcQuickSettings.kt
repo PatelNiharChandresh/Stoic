@@ -47,7 +47,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
 
-private const val ARC_DEPTH_DP = 60f
+private const val ARC_DEPTH_DP = 100f
 
 /**
  * Calculates the horizontal offset based on the item's actual Y position on screen.

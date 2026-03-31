@@ -46,7 +46,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
 
-private const val ARC_DEPTH_DP = 60f
+private const val ARC_DEPTH_DP = 100f
 private const val ICON_SIZE_DP = 36f
 
 /**
