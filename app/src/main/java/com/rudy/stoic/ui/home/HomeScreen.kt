@@ -25,6 +25,7 @@ import com.rudy.stoic.ui.quicksettings.ArcQuickSettings
 import com.rudy.stoic.ui.quicksettings.QuickSettingsViewModel
 import com.rudy.stoic.ui.ring.DualRingView
 import com.rudy.stoic.ui.ring.FolderExpansionOverlay
+import com.rudy.stoic.ui.search.SearchOverlay
 import com.rudy.stoic.util.SystemActionHelper
 
 @Composable
@@ -127,6 +128,13 @@ fun HomeScreen(
                 viewModel.dismissPanel()
             },
             onDismiss = { viewModel.dismissPanel() }
+        )
+
+        // Search overlay
+        SearchOverlay(
+            visible = panelState == PanelState.SEARCH_OPEN,
+            onDismiss = { viewModel.dismissPanel() },
+            onAppLaunched = { viewModel.dismissPanel() }
         )
 
         // Ring config screen

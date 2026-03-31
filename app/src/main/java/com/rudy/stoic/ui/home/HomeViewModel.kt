@@ -22,7 +22,8 @@ enum class PanelState {
     DRAWER_OPEN,
     QUICK_SETTINGS_OPEN,
     CONFIG_OPEN,
-    FOLDER_EXPANDED
+    FOLDER_EXPANDED,
+    SEARCH_OPEN
 }
 
 @HiltViewModel
@@ -65,7 +66,7 @@ class HomeViewModel @Inject constructor(
             RingItemType.SYSTEM_ACTION -> {
                 when (item.actionId) {
                     SystemActions.SEARCH -> {
-                        // Deferred to Step 7 — search overlay
+                        _panelState.value = PanelState.SEARCH_OPEN
                     }
                     SystemActions.SETTINGS -> SystemActionHelper.openSettings(context)
                     SystemActions.CALLS -> SystemActionHelper.openDialer(context)
