@@ -1,6 +1,8 @@
 package com.rudy.stoic.ui.home
 
 import android.app.WallpaperManager
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -12,6 +14,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -84,17 +88,33 @@ fun HomeScreen(
             )
         }
 
-        // Dual ring centered on screen (visible only on HOME state)
-        if (panelState == PanelState.HOME) {
+        // 8.7 Ring fade/scale transition
+        val isHome = panelState == PanelState.HOME
+        val ringAlpha by animateFloatAsState(
+            targetValue = if (isHome) 1f else 0f,
+            animationSpec = tween(300),
+            label = "ringAlpha"
+        )
+        val ringScale by animateFloatAsState(
+            targetValue = if (isHome) 1f else 0.85f,
+            animationSpec = tween(300),
+            label = "ringScale"
+        )
+
+        // Dual ring centered on screen
+        if (ringAlpha > 0.01f) {
             DualRingView(
                 items = ringItems,
-                modifier = Modifier.align(Alignment.Center),
-                onItemTapped = { item ->
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .scale(ringScale)
+                    .alpha(ringAlpha),
+                onItemTapped = if (isHome) { item ->
                     viewModel.onRingItemTapped(item, context)
-                },
-                onCenterGesture = { direction ->
+                } else null,
+                onCenterGesture = if (isHome) { direction ->
                     viewModel.onCenterGesture(direction, context)
-                }
+                } else null
             )
         }
 

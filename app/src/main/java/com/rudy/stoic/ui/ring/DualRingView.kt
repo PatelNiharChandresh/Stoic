@@ -1,13 +1,21 @@
 package com.rudy.stoic.ui.ring
 
 import android.graphics.BlurMaskFilter
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -18,6 +26,7 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -35,7 +44,6 @@ import com.rudy.stoic.ui.theme.CyanBorder
 import com.rudy.stoic.ui.theme.CyanGlow
 import com.rudy.stoic.ui.theme.CyanPrimary
 import com.rudy.stoic.ui.theme.TextPrimary
-import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -61,18 +69,64 @@ fun DualRingView(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
 
     val screenWidthDp = configuration.screenWidthDp.dp
     val ringSizeDp = outerRadiusDp?.times(2) ?: (screenWidthDp * OUTER_RADIUS_RATIO * 2)
 
     var pressedBlockIndex by remember { mutableIntStateOf(-1) }
 
-    // Pre-compute radii in px for gesture handling
     val ringSizePx = with(density) { ringSizeDp.toPx() }
     val outerRadiusPx = ringSizePx / 2f
     val innerRadiusPx = innerRadiusDp?.let { with(density) { it.toPx() } }
         ?: (outerRadiusPx * INNER_RADIUS_RATIO)
+
+    // === ANIMATIONS ===
+
+    // 8.1 Pulsing glow — oscillates glow radius
+    val infiniteTransition = rememberInfiniteTransition(label = "ringPulse")
+    val pulseGlow by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowPulse"
+    )
+
+    // 8.1 Slow rotating scan line angle
+    val scanAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(6000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "scanLine"
+    )
+
+    // 8.2 Ring entrance — animate sweep from 0 to 360
+    var entranceTarget by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) { entranceTarget = 1f }
+    val entranceProgress by animateFloatAsState(
+        targetValue = entranceTarget,
+        animationSpec = tween(durationMillis = 1200),
+        label = "ringEntrance"
+    )
+
+    // 8.2 Block fade-in (staggered per block)
+    val blockAlpha by animateFloatAsState(
+        targetValue = entranceTarget,
+        animationSpec = tween(durationMillis = 800, delayMillis = 600),
+        label = "blockFade"
+    )
+
+    // 8.5 Gesture hint arrows fade out
+    val hintAlpha by animateFloatAsState(
+        targetValue = if (entranceTarget == 1f) 0f else 0.6f,
+        animationSpec = tween(durationMillis = 3000, delayMillis = 2000),
+        label = "hintFade"
+    )
 
     Canvas(
         modifier = modifier
@@ -108,7 +162,6 @@ fun DualRingView(
                                 pressedBlockIndex = hitIndex
                             }
                         } else {
-                            // Finger lifted
                             if (hitIndex >= 0 && hitIndex == pressedBlockIndex) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onItemTapped?.invoke(items[hitIndex])
@@ -126,33 +179,59 @@ fun DualRingView(
             with(density) { it.toPx() }
         } ?: (outerRadius * INNER_RADIUS_RATIO)
 
-        // Draw glow behind circles
-        drawCircleGlow(center, outerRadius, CyanGlow, GLOW_RADIUS)
-        drawCircleGlow(center, innerRadius, CyanGlow, GLOW_RADIUS)
+        val animatedGlowRadius = GLOW_RADIUS * pulseGlow
+        val sweepProgress = entranceProgress * 360f
 
-        // Draw blocks between the two circles
-        drawBlocks(items, center, outerRadius, innerRadius, pressedBlockIndex)
+        // 8.1 Pulsing glow behind circles
+        drawCircleGlow(center, outerRadius, CyanGlow, animatedGlowRadius)
+        drawCircleGlow(center, innerRadius, CyanGlow, animatedGlowRadius)
 
-        // Draw outer circle
-        drawCircle(
+        // 8.5 Center zone scan effect
+        drawCenterScanEffect(center, innerRadius, scanAngle)
+
+        // 8.5 Gesture hint arrows
+        if (hintAlpha > 0.01f) {
+            drawGestureHints(center, innerRadius, hintAlpha)
+        }
+
+        // Draw blocks with entrance fade
+        if (blockAlpha > 0.01f) {
+            drawBlocks(items, center, outerRadius, innerRadius, pressedBlockIndex, blockAlpha)
+        }
+
+        // 8.2 Outer circle — tracing entrance animation
+        drawArc(
             color = CyanPrimary,
-            radius = outerRadius,
-            center = center,
+            startAngle = -90f,
+            sweepAngle = sweepProgress,
+            useCenter = false,
+            topLeft = Offset(center.x - outerRadius, center.y - outerRadius),
+            size = androidx.compose.ui.geometry.Size(outerRadius * 2, outerRadius * 2),
             style = Stroke(width = CIRCLE_STROKE_WIDTH)
         )
 
-        // Draw inner circle
-        drawCircle(
+        // 8.2 Inner circle — tracing entrance (slightly delayed feel via same progress)
+        drawArc(
             color = CyanPrimary,
-            radius = innerRadius,
-            center = center,
+            startAngle = 90f,
+            sweepAngle = sweepProgress,
+            useCenter = false,
+            topLeft = Offset(center.x - innerRadius, center.y - innerRadius),
+            size = androidx.compose.ui.geometry.Size(innerRadius * 2, innerRadius * 2),
             style = Stroke(width = CIRCLE_STROKE_WIDTH)
         )
 
-        // Draw icons and labels
-        drawIconsAndLabels(items, center, outerRadius, innerRadius, pressedBlockIndex)
+        // 8.1 Rotating scan line on outer circle
+        drawScanLine(center, outerRadius, innerRadius, scanAngle, CyanPrimary.copy(alpha = 0.15f))
+
+        // Icons and labels with entrance fade
+        if (blockAlpha > 0.01f) {
+            drawIconsAndLabels(items, center, outerRadius, innerRadius, pressedBlockIndex, blockAlpha)
+        }
     }
 }
+
+// === DRAWING FUNCTIONS ===
 
 private fun DrawScope.drawCircleGlow(center: Offset, radius: Float, color: Color, blurRadius: Float) {
     drawIntoCanvas { canvas ->
@@ -167,12 +246,83 @@ private fun DrawScope.drawCircleGlow(center: Offset, radius: Float, color: Color
     }
 }
 
+private fun DrawScope.drawScanLine(
+    center: Offset,
+    outerRadius: Float,
+    innerRadius: Float,
+    angle: Float,
+    color: Color
+) {
+    val angleRad = angle * PI.toFloat() / 180f
+    val startX = center.x + innerRadius * cos(angleRad)
+    val startY = center.y + innerRadius * sin(angleRad)
+    val endX = center.x + outerRadius * cos(angleRad)
+    val endY = center.y + outerRadius * sin(angleRad)
+
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2f
+            maskFilter = BlurMaskFilter(4f, BlurMaskFilter.Blur.NORMAL)
+            this.color = color.toArgb()
+        }
+        canvas.nativeCanvas.drawLine(startX, startY, endX, endY, paint)
+    }
+}
+
+private fun DrawScope.drawCenterScanEffect(center: Offset, innerRadius: Float, angle: Float) {
+    // Subtle crosshair grid in the center
+    val gridColor = CyanPrimary.copy(alpha = 0.04f)
+    val gridRadius = innerRadius * 0.85f
+
+    // Horizontal and vertical lines
+    drawLine(gridColor, Offset(center.x - gridRadius, center.y), Offset(center.x + gridRadius, center.y), strokeWidth = 0.5f)
+    drawLine(gridColor, Offset(center.x, center.y - gridRadius), Offset(center.x, center.y + gridRadius), strokeWidth = 0.5f)
+
+    // Rotating crosshair
+    rotate(angle, center) {
+        drawLine(
+            CyanPrimary.copy(alpha = 0.06f),
+            Offset(center.x - gridRadius * 0.6f, center.y),
+            Offset(center.x + gridRadius * 0.6f, center.y),
+            strokeWidth = 0.8f
+        )
+    }
+
+    // Small center dot
+    drawCircle(CyanPrimary.copy(alpha = 0.1f), radius = 3f, center = center)
+}
+
+private fun DrawScope.drawGestureHints(center: Offset, innerRadius: Float, alpha: Float) {
+    val hintColor = CyanPrimary.copy(alpha = alpha * 0.5f)
+    val arrowSize = innerRadius * 0.15f
+    val offset = innerRadius * 0.45f
+
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            this.color = hintColor.toArgb()
+            textSize = arrowSize
+            textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        // Down arrow
+        canvas.nativeCanvas.drawText("↓", center.x, center.y + offset, paint)
+        // Left arrow
+        canvas.nativeCanvas.drawText("←", center.x - offset, center.y, paint)
+        // Right arrow
+        canvas.nativeCanvas.drawText("→", center.x + offset, center.y, paint)
+    }
+}
+
 private fun DrawScope.drawBlocks(
     items: List<RingItem>,
     center: Offset,
     outerRadius: Float,
     innerRadius: Float,
-    pressedIndex: Int
+    pressedIndex: Int,
+    alpha: Float
 ) {
     val itemCount = items.size
     if (itemCount == 0) return
@@ -183,34 +333,26 @@ private fun DrawScope.drawBlocks(
         val startAngle = RingMath.blockStartAngle(i, itemCount)
         val isPressed = i == pressedIndex
 
-        val blockPath = createBlockPath(
-            center = center,
-            outerRadius = outerRadius,
-            innerRadius = innerRadius,
-            startAngleDeg = startAngle,
-            sweepAngleDeg = sweepAngle
-        )
+        // 8.2 Staggered fade per block
+        val blockDelay = i.toFloat() / itemCount
+        val blockAlpha = ((alpha - blockDelay * 0.3f) / 0.7f).coerceIn(0f, 1f)
+        if (blockAlpha <= 0f) continue
 
-        // Fill block — brighter when pressed
+        val blockPath = createBlockPath(center, outerRadius, innerRadius, startAngle, sweepAngle)
+
         val fillColor = if (isPressed) {
-            CyanPrimary.copy(alpha = 0.25f)
+            CyanPrimary.copy(alpha = 0.25f * blockAlpha)
         } else {
-            BlockBackground
+            BlockBackground.copy(alpha = BlockBackground.alpha * blockAlpha)
         }
         drawPath(path = blockPath, color = fillColor)
 
-        // Block border glow — stronger when pressed
-        val glowColor = if (isPressed) CyanPrimary.copy(alpha = 0.6f) else CyanGlow
+        val glowColor = if (isPressed) CyanPrimary.copy(alpha = 0.6f * blockAlpha) else CyanGlow.copy(alpha = CyanGlow.alpha * blockAlpha)
         drawBlockBorderGlow(blockPath, glowColor)
 
-        // Block border — brighter when pressed
-        val borderColor = if (isPressed) CyanPrimary else CyanBorder
+        val borderColor = if (isPressed) CyanPrimary.copy(alpha = blockAlpha) else CyanBorder.copy(alpha = CyanBorder.alpha * blockAlpha)
         val borderWidth = if (isPressed) BLOCK_BORDER_WIDTH * 2f else BLOCK_BORDER_WIDTH
-        drawPath(
-            path = blockPath,
-            color = borderColor,
-            style = Stroke(width = borderWidth)
-        )
+        drawPath(path = blockPath, color = borderColor, style = Stroke(width = borderWidth))
     }
 }
 
@@ -225,24 +367,17 @@ private fun createBlockPath(
     val endAngleDeg = startAngleDeg + sweepAngleDeg
 
     val outerRect = Rect(
-        left = center.x - outerRadius,
-        top = center.y - outerRadius,
-        right = center.x + outerRadius,
-        bottom = center.y + outerRadius
+        left = center.x - outerRadius, top = center.y - outerRadius,
+        right = center.x + outerRadius, bottom = center.y + outerRadius
     )
     path.arcTo(outerRect, startAngleDeg, sweepAngleDeg, forceMoveTo = true)
 
     val endAngleRad = endAngleDeg * PI.toFloat() / 180f
-    path.lineTo(
-        center.x + innerRadius * cos(endAngleRad),
-        center.y + innerRadius * sin(endAngleRad)
-    )
+    path.lineTo(center.x + innerRadius * cos(endAngleRad), center.y + innerRadius * sin(endAngleRad))
 
     val innerRect = Rect(
-        left = center.x - innerRadius,
-        top = center.y - innerRadius,
-        right = center.x + innerRadius,
-        bottom = center.y + innerRadius
+        left = center.x - innerRadius, top = center.y - innerRadius,
+        right = center.x + innerRadius, bottom = center.y + innerRadius
     )
     path.arcTo(innerRect, endAngleDeg, -sweepAngleDeg, forceMoveTo = false)
 
@@ -268,7 +403,8 @@ private fun DrawScope.drawIconsAndLabels(
     center: Offset,
     outerRadius: Float,
     innerRadius: Float,
-    pressedIndex: Int
+    pressedIndex: Int,
+    alpha: Float
 ) {
     val itemCount = items.size
     if (itemCount == 0) return
@@ -289,6 +425,10 @@ private fun DrawScope.drawIconsAndLabels(
 
         for (i in items.indices) {
             val isPressed = i == pressedIndex
+            val blockDelay = i.toFloat() / itemCount
+            val itemAlpha = ((alpha - blockDelay * 0.3f) / 0.7f).coerceIn(0f, 1f)
+            if (itemAlpha <= 0f) continue
+
             val midAngle = RingMath.blockMidAngle(i, itemCount)
             val midAngleRad = midAngle * PI.toFloat() / 180f
 
@@ -299,18 +439,15 @@ private fun DrawScope.drawIconsAndLabels(
                 center = Offset(iconCenterX, iconCenterY),
                 size = iconSizePx,
                 label = items[i].label,
-                isPressed = isPressed
+                isPressed = isPressed,
+                alpha = itemAlpha
             )
 
             val labelX = center.x + labelRadius * cos(midAngleRad)
             val labelY = center.y + labelRadius * sin(midAngleRad)
 
-            // Brighter label when pressed
-            if (isPressed) {
-                labelPaint.color = AmberAccent.toArgb()
-            } else {
-                labelPaint.color = TextPrimary.toArgb()
-            }
+            val labelColor = if (isPressed) AmberAccent else TextPrimary
+            labelPaint.color = labelColor.copy(alpha = labelColor.alpha * itemAlpha).toArgb()
 
             canvas.nativeCanvas.drawText(
                 items[i].label,
@@ -326,19 +463,34 @@ private fun DrawScope.drawIconPlaceholder(
     center: Offset,
     size: Float,
     label: String,
-    isPressed: Boolean
+    isPressed: Boolean,
+    alpha: Float
 ) {
-    val bgColor = if (isPressed) CyanPrimary.copy(alpha = 0.4f) else CyanPrimary.copy(alpha = 0.2f)
-    val borderColor = if (isPressed) CyanPrimary else CyanBorder
+    val bgColor = if (isPressed) CyanPrimary.copy(alpha = 0.4f * alpha) else CyanPrimary.copy(alpha = 0.2f * alpha)
+    val borderColor = if (isPressed) CyanPrimary.copy(alpha = alpha) else CyanBorder.copy(alpha = CyanBorder.alpha * alpha)
     val textColor = if (isPressed) AmberAccent else CyanPrimary
 
     drawCircle(color = bgColor, radius = size, center = center)
     drawCircle(color = borderColor, radius = size, center = center, style = Stroke(width = 1f))
 
+    // 8.6 Icon glow halo
+    if (alpha > 0.5f) {
+        drawIntoCanvas { canvas ->
+            val haloPaint = android.graphics.Paint().apply {
+                isAntiAlias = true
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+                maskFilter = BlurMaskFilter(8f, BlurMaskFilter.Blur.NORMAL)
+                color = CyanGlow.copy(alpha = 0.3f * alpha).toArgb()
+            }
+            canvas.nativeCanvas.drawCircle(center.x, center.y, size, haloPaint)
+        }
+    }
+
     drawIntoCanvas { canvas ->
         val textPaint = android.graphics.Paint().apply {
             isAntiAlias = true
-            color = textColor.toArgb()
+            color = textColor.copy(alpha = textColor.alpha * alpha).toArgb()
             textSize = size * 1.2f
             textAlign = android.graphics.Paint.Align.CENTER
             typeface = android.graphics.Typeface.create(
