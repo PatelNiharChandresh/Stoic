@@ -4,7 +4,6 @@ import android.app.WallpaperManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -13,6 +12,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.drawable.toBitmap
+import com.rudy.stoic.domain.model.defaultRingItems
+import com.rudy.stoic.ui.ring.DualRingView
 
 @Composable
 fun HomeScreen(modifier: Modifier = Modifier) {
@@ -26,6 +27,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    val ringItems = remember { defaultRingItems() }
+
     Box(modifier = modifier.fillMaxSize()) {
         // Wallpaper background
         if (wallpaperBitmap != null) {
@@ -37,10 +40,9 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        // Placeholder for the dual ring (Step 3)
-        Text(
-            text = "Stoic Launcher",
-            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+        // Dual ring centered on screen
+        DualRingView(
+            items = ringItems,
             modifier = Modifier.align(Alignment.Center)
         )
     }
