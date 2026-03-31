@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -41,7 +40,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         // Placeholder for the dual ring (Step 3)
         Text(
             text = "Stoic Launcher",
-            color = Color(0xFF00E5FF),
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
             modifier = Modifier.align(Alignment.Center)
         )
     }
