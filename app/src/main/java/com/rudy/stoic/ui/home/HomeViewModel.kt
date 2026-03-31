@@ -2,6 +2,8 @@ package com.rudy.stoic.ui.home
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.rudy.stoic.data.local.datastore.RingConfigDataStore
 import com.rudy.stoic.domain.model.GestureDirection
 import com.rudy.stoic.domain.model.RingItem
 import com.rudy.stoic.domain.model.RingItemType
@@ -12,16 +14,21 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class PanelState {
     HOME,
     DRAWER_OPEN,
-    QUICK_SETTINGS_OPEN
+    QUICK_SETTINGS_OPEN,
+    CONFIG_OPEN,
+    FOLDER_EXPANDED
 }
 
 @HiltViewModel
-class HomeViewModel @Inject constructor() : ViewModel() {
+class HomeViewModel @Inject constructor(
+    private val ringConfigDataStore: RingConfigDataStore
+) : ViewModel() {
 
     private val _panelState = MutableStateFlow(PanelState.HOME)
     val panelState: StateFlow<PanelState> = _panelState.asStateFlow()
@@ -29,13 +36,31 @@ class HomeViewModel @Inject constructor() : ViewModel() {
     private val _ringItems = MutableStateFlow(defaultRingItems())
     val ringItems: StateFlow<List<RingItem>> = _ringItems.asStateFlow()
 
+    // For folder expansion
+    private val _expandedFolder = MutableStateFlow<RingItem?>(null)
+    val expandedFolder: StateFlow<RingItem?> = _expandedFolder.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            ringConfigDataStore.ringItems.collect { items ->
+                _ringItems.value = items
+            }
+        }
+    }
+
     fun onRingItemTapped(item: RingItem, context: Context) {
         when (item.type) {
             RingItemType.APP -> {
                 item.packageName?.let { SystemActionHelper.launchApp(context, it) }
             }
             RingItemType.FOLDER -> {
-                // Deferred to Step 6 — folder expansion
+                if (item.appList.isNullOrEmpty()) {
+                    // Empty folder — open config to add apps
+                    _panelState.value = PanelState.CONFIG_OPEN
+                } else {
+                    _expandedFolder.value = item
+                    _panelState.value = PanelState.FOLDER_EXPANDED
+                }
             }
             RingItemType.SYSTEM_ACTION -> {
                 when (item.actionId) {
@@ -64,7 +89,12 @@ class HomeViewModel @Inject constructor() : ViewModel() {
         }
     }
 
+    fun openConfig() {
+        _panelState.value = PanelState.CONFIG_OPEN
+    }
+
     fun dismissPanel() {
         _panelState.value = PanelState.HOME
+        _expandedFolder.value = null
     }
 }

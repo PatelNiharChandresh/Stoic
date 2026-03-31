@@ -2,6 +2,7 @@ package com.rudy.stoic.ui.home
 
 import android.app.WallpaperManager
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -12,15 +13,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.rudy.stoic.ui.config.RingConfigScreen
 import com.rudy.stoic.ui.drawer.ArcAppDrawer
 import com.rudy.stoic.ui.drawer.DrawerViewModel
 import com.rudy.stoic.ui.quicksettings.ArcQuickSettings
 import com.rudy.stoic.ui.quicksettings.QuickSettingsViewModel
 import com.rudy.stoic.ui.ring.DualRingView
+import com.rudy.stoic.ui.ring.FolderExpansionOverlay
+import com.rudy.stoic.util.SystemActionHelper
 
 @Composable
 fun HomeScreen(
@@ -43,6 +48,7 @@ fun HomeScreen(
     val panelState by viewModel.panelState.collectAsState()
     val installedApps by drawerViewModel.installedApps.collectAsState()
     val quickSettingTiles by quickSettingsViewModel.tiles.collectAsState()
+    val expandedFolder by viewModel.expandedFolder.collectAsState()
 
     // Refresh quick settings states when panel opens
     LaunchedEffect(panelState) {
@@ -59,6 +65,21 @@ fun HomeScreen(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
+            )
+        }
+
+        // Long-press on empty area to open config (only when on HOME)
+        if (panelState == PanelState.HOME) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onLongPress = {
+                                viewModel.openConfig()
+                            }
+                        )
+                    }
             )
         }
 
@@ -96,5 +117,23 @@ fun HomeScreen(
             },
             onDismiss = { viewModel.dismissPanel() }
         )
+
+        // Folder expansion overlay
+        FolderExpansionOverlay(
+            folder = expandedFolder,
+            visible = panelState == PanelState.FOLDER_EXPANDED,
+            onAppClick = { packageName ->
+                SystemActionHelper.launchApp(context, packageName)
+                viewModel.dismissPanel()
+            },
+            onDismiss = { viewModel.dismissPanel() }
+        )
+
+        // Ring config screen
+        if (panelState == PanelState.CONFIG_OPEN) {
+            RingConfigScreen(
+                onDismiss = { viewModel.dismissPanel() }
+            )
+        }
     }
 }
